@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="hi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>दूध की गाड़ी कहाँ है</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600&family=Khand:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><link rel="stylesheet" href="/style.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script></head><body>
+<div class="mapwrap"><div id="map"></div>
+<div class="top"><span class="pill">दूध की गाड़ी</span><span class="pill" id="pill"><i></i><span id="pt">बंद</span></span></div></div>
+<main class="sheet"><div class="wrap">
+<p class="hl" id="hl">देख रहे हैं…</p>
+<div class="big"><b id="bn">--</b><span id="bu">मिनट</span></div>
+<p class="hs" id="hs"></p>
+<dl class="facts"><div><dt>राउंड में बाकी</dt><dd id="rem">--</dd></div><div><dt>घर वापसी</dt><dd id="eta">--</dd></div><div><dt>समय</dt><dd id="delay">--</dd></div></dl>
+<h2>रास्ते के स्टॉपेज</h2><p class="hint" id="hint"></p>
+<ol class="track" id="list"></ol>
+</div></main>
+<script src="/common.js"></script>
+<script>
+var M=initMap('map'),D=null,mineKey=localStorage.mine||'';
+function render(d){
+  D=d;var s=d.config.stops,st=d.state,m=mode(st),f=fillFacts(d),c=f.c,go=f.go;
+  $('pill').className='pill '+m;$('pt').textContent=MODE_TXT[m];
+  var nx=st.done<s.length?st.done:-1,mi=-1;s.forEach(function(p,i){if(key(p)===mineKey)mi=i});
+  var hl='',bn='--',bu='मिनट',hs='';
+  if(!s.length){hl='अभी रास्ता तय नहीं हुआ';hs='दूधवाले ने स्टॉपेज नहीं जोड़े हैं।'}
+  else if(!st.startTs){hl='गाड़ी अभी निकली नहीं';hs='निकलते ही यहाँ आपके स्टॉप का समय दिखने लगेगा।'}
+  else if(!st.running){hl='गाड़ी कुछ देर के लिए रुकी है';hs=st.ts?'आखिरी बार '+new Date(st.ts).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit',hour12:true})+' पर दिखी थी।':''}
+  else if(nx<0){hl='सारे स्टॉपेज पूरे हो गए';bn=String(mins(c.home));hs='गाड़ी घर लौट रही है। लगभग '+clock(c.home)+' तक पहुँचेगी।'}
+  else if(mi>=0&&mi<st.done){hl='आपके स्टॉप का दूध पहुँच चुका है';bn='✓';bu='';hs=s[mi].name}
+  else{var t=mi>=0?mi:nx;hl=(mi>=0?'आपके स्टॉप ':'अगला स्टॉप ')+s[t].name+' तक';bn=mins(c.etas[t])<1?'<1':String(mins(c.etas[t]));hs='लगभग '+clock(c.etas[t])+' बजे'}
+  $('hl').textContent=hl;$('bn').textContent=bn;$('bu').textContent=bu;$('hs').textContent=hs;
+  $('hint').textContent=s.length?(mi<0?'अपना स्टॉपेज छूकर चुनिए। फिर ऊपर आपके घर का समय दिखेगा।':'दूसरा स्टॉपेज छूकर चुनाव बदल सकते हैं।'):'';
+  $('list').innerHTML=s.map(function(p,i){var k=key(p),cls=(i<st.done?'done':(i===nx?'next':''))+(k===mineKey?' mine':'');
+    var t='—',sub='';if(i<st.done)t='हो गया';else if(go){t=clock(c.etas[i]);sub=minTxt(c.etas[i])}
+    return '<li class="r '+cls+'"><button data-k="'+k+'" aria-pressed="'+(k===mineKey)+'"><span class="nd"></span><span class="nm">'+esc(p.name)+'<small>'+(k===mineKey?'आपका स्टॉपेज। ':'')+'यहाँ रुकेगी लगभग '+dw(p.sec)+'</small></span><span class="tm"><b>'+t+'</b><small>'+sub+'</small></span></button></li>'}).join('');
+  drawMap(M,d,mineKey);
+}
+$('list').onclick=function(e){var b=e.target.closest('button');if(!b)return;var k=b.getAttribute('data-k');mineKey=(mineKey===k)?'':k;localStorage.mine=mineKey;render(D)};
+listen(render);setInterval(function(){if(D)render(D)},20000);
+</script></body></html>

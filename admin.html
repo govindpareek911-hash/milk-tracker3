@@ -1,0 +1,108 @@
+<!DOCTYPE html><html lang="hi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>दूधवाले का पैनल</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600&family=Khand:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><link rel="stylesheet" href="/style.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script></head><body>
+<div class="page">
+<h1>दूधवाले का पैनल</h1>
+<div class="band" id="band"><div><h2 id="bt">लोकेशन बंद</h2><p id="bs">स्विच दबाकर राउंड शुरू करें।</p></div>
+<button class="sw" id="sw" role="switch" aria-checked="false" aria-label="लोकेशन चालू या बंद करें"></button></div>
+<p class="say" id="say" role="status"></p>
+<dl class="facts"><div><dt>राउंड में बाकी</dt><dd id="rem">--</dd></div><div><dt>घर वापसी</dt><dd id="eta">--</dd></div><div><dt>समय</dt><dd id="delay">--</dd></div></dl>
+
+<h2>रास्ता बनाइए</h2>
+<div class="seg" role="group" aria-label="नक्शे पर टैप से क्या हो">
+<button id="m-stop" aria-pressed="true">स्टॉपेज जोड़ें</button><button id="m-home" aria-pressed="false">घर की जगह</button></div>
+<p class="hint" id="hint">नक्शे पर जहाँ रुकना है वहाँ टैप कीजिए। नाम और रुकने का समय पूछेगा।</p>
+<div class="adminmap"><div id="map"></div></div>
+<div class="row"><button class="btn ghost" id="gstop">मैं जहाँ हूँ वहाँ स्टॉपेज जोड़ें</button><button class="btn ghost" id="ghome">यहीं को घर बनाएँ</button></div>
+
+<h2>स्टॉपेज (इसी क्रम में गाड़ी चलेगी)</h2>
+<ol class="track" id="alist" style="list-style:none;padding:0;margin:0"></ol>
+<p class="hint" id="empty">अभी कोई स्टॉपेज नहीं है।</p>
+
+<h2>राउंड</h2>
+<div class="row"><label for="rm">पूरे राउंड का समय (मिनट)</label><input id="rm" type="number" min="5" max="600" style="width:90px"><button class="btn" id="rms">सेव करें</button></div>
+<div class="row"><button class="btn warn" id="rs">नया राउंड शुरू करें</button></div>
+<p class="hint">नया राउंड शुरू करने पर सारे स्टॉपेज फिर से "बाकी" हो जाते हैं।</p>
+</div>
+
+<dialog id="dlg"><h2>नया स्टॉपेज</h2>
+<label for="dn">नाम</label><input id="dn" placeholder="जैसे 100 - शर्मा जी" autocomplete="off">
+<label>यहाँ कितनी देर रुकेंगे</label><div class="chips" id="dchips"></div>
+<div class="row" style="margin-top:18px"><button class="btn" id="dok">स्टॉपेज जोड़ें</button><button class="btn ghost" id="dno">रद्द करें</button></div></dialog>
+<dialog id="pwd"><h2>पासवर्ड डालिए</h2><p id="pwm" class="late" style="margin:0 0 8px"></p>
+<input id="pwi" type="password" autocomplete="current-password" aria-label="पासवर्ड"><div class="row"><button class="btn" id="pwo">खोलें</button></div></dialog>
+
+<script>window.ADMIN=true</script><script src="/common.js"></script>
+<script>
+var D=null,M=initMap('map'),tap='stop',pending=null,watchId=null,lastSend=0,lock=null,listKey='';
+var DW=[30,60,120,300,600];
+function say(t){$('say').textContent=t||''}
+function api(p,b){return fetch('/api/'+p,{method:'POST',headers:{'content-type':'application/json','x-admin-pass':localStorage.pw||''},body:JSON.stringify(b||{})})
+  .then(function(r){if(r.status===401){askPw('पासवर्ड गलत है, दोबारा डालिए।');throw new Error('pw')}return r.json()})}
+function askPw(m){$('pwm').textContent=m||'';if(!$('pwd').open)$('pwd').showModal()}
+$('pwo').onclick=function(){localStorage.pw=$('pwi').value;api('check').then(function(){$('pwd').close();say('पासवर्ड सही है।')}).catch(function(){})};
+$('pwi').onkeydown=function(e){if(e.key==='Enter')$('pwo').click()};
+if(!localStorage.pw)askPw('');else api('check').catch(function(){});
+function saveCfg(){try{localStorage.cfgBackup=JSON.stringify(D.config)}catch(e){}return api('config',D.config).catch(function(){})}
+var restored=false;
+function opts(sec){var a=DW.slice();if(a.indexOf(sec)<0){a.push(sec);a.sort(function(x,y){return x-y})}return a.map(function(v){return '<option value="'+v+'"'+(v===sec?' selected':'')+'>रुकेंगे '+dw(v)+'</option>'}).join('')}
+function render(d){
+  D=d;var st=d.state,on=watchId!=null,s=d.config.stops;
+  // सर्वर रीस्टार्ट होकर खाली हो जाए तो इस फोन में रखी कॉपी से स्टॉपेज वापस डाल दो
+  try{var bk=localStorage.cfgBackup?JSON.parse(localStorage.cfgBackup):null;
+    if(!d.config.stops.length&&!d.config.home&&bk&&(bk.stops.length||bk.home)&&!restored){restored=true;d.config=bk;saveCfg();say('सर्वर रीस्टार्ट हुआ था। आपके स्टॉपेज और घर वापस डाल दिए गए हैं।');}
+    else if(d.config.stops.length||d.config.home)localStorage.cfgBackup=JSON.stringify(d.config)}catch(e){}
+  $('band').className='band'+(on?' on':'');$('sw').setAttribute('aria-checked',on);
+  $('bt').textContent=on?'लोकेशन चालू':'लोकेशन बंद';
+  $('bs').textContent=on?'customers आपकी गाड़ी देख रहे हैं। यह पेज खुला रखिए।':(st.running?'राउंड चालू दिख रहा है पर इस फोन से लोकेशन नहीं जा रही। स्विच दबाइए।':'स्विच दबाकर राउंड शुरू कीजिए।');
+  fillFacts(d);if(document.activeElement!==$('rm'))$('rm').value=d.config.roundMin;
+  var k=JSON.stringify([s,st.done]);
+  if(k!==listKey&&!$('alist').contains(document.activeElement)){listKey=k;
+    $('empty').style.display=s.length?'none':'block';
+    $('alist').innerHTML=s.map(function(p,i){return '<li class="ar" data-i="'+i+'"><span class="no">'+(i+1)+'</span><input class="nmi" value="'+esc(p.name)+'" aria-label="स्टॉपेज '+(i+1)+' का नाम">'+
+      '<div class="sub"><select class="dws" aria-label="रुकने का समय">'+opts(p.sec)+'</select>'+(i<st.done?'<span class="chip">हो गया</span>':'')+
+      '<button class="ic" data-a="up" aria-label="ऊपर करें"'+(i?'':' disabled')+'>▲</button><button class="ic" data-a="dn" aria-label="नीचे करें"'+(i<s.length-1?'':' disabled')+'>▼</button><button class="ic del" data-a="rm">हटाएँ</button></div></li>'}).join('')}
+  drawMap(M,d,'');
+}
+listen(render);setInterval(function(){if(D)fillFacts(D)},20000);
+$('alist').onchange=function(e){var li=e.target.closest('li');if(!li)return;var i=+li.getAttribute('data-i'),p=D.config.stops[i];
+  if(e.target.className==='nmi'){p.name=e.target.value.trim()||p.name}else if(e.target.className==='dws'){p.sec=+e.target.value}saveCfg()};
+$('alist').onclick=function(e){var b=e.target.closest('button');if(!b)return;var i=+b.parentNode.parentNode.getAttribute('data-i'),a=b.getAttribute('data-a'),s=D.config.stops;
+  if(a==='rm'){if(!confirm(s[i].name+' हटाएँ?'))return;s.splice(i,1)}
+  else{var j=a==='up'?i-1:i+1;if(j<0||j>=s.length)return;var t=s[i];s[i]=s[j];s[j]=t}
+  listKey='';saveCfg()};
+function setTap(m){tap=m;$('m-stop').setAttribute('aria-pressed',m==='stop');$('m-home').setAttribute('aria-pressed',m==='home');
+  $('hint').textContent=m==='stop'?'नक्शे पर जहाँ रुकना है वहाँ टैप कीजिए। नाम और रुकने का समय पूछेगा।':'नक्शे पर अपने घर की जगह टैप कीजिए।'}
+$('m-stop').onclick=function(){setTap('stop')};$('m-home').onclick=function(){setTap('home')};
+function setHome(a,b){D.config.home={lat:a,lng:b};listKey='';saveCfg();setTap('stop')}
+M.m.on('click',function(e){if(!D)return;if(tap==='home')setHome(e.latlng.lat,e.latlng.lng);else openAdd(e.latlng.lat,e.latlng.lng)});
+function here(cb){if(!navigator.geolocation){say('इस ब्राउज़र में लोकेशन नहीं है।');return}
+  navigator.geolocation.getCurrentPosition(function(p){cb(p.coords.latitude,p.coords.longitude)},function(){say('लोकेशन नहीं मिली। ब्राउज़र में लोकेशन की अनुमति दीजिए।')},{enableHighAccuracy:true,timeout:15000})}
+$('ghome').onclick=function(){here(setHome)};$('gstop').onclick=function(){here(openAdd)};
+$('dchips').innerHTML=DW.map(function(v,i){return '<label><input type="radio" name="dw" value="'+v+'"'+(i===0?' checked':'')+'><span>'+dw(v)+'</span></label>'}).join('');
+function openAdd(a,b){pending={lat:a,lng:b};$('dn').value='';$('dlg').showModal();$('dn').focus()}
+$('dno').onclick=function(){$('dlg').close()};
+$('dok').onclick=function(){var n=$('dn').value.trim();if(!n){$('dn').focus();return}
+  D.config.stops.push({lat:pending.lat,lng:pending.lng,name:n,sec:+document.querySelector('input[name=dw]:checked').value});listKey='';saveCfg();$('dlg').close()};
+$('rms').onclick=function(){D.config.roundMin=Math.max(5,+$('rm').value||60);saveCfg().then(function(){say('राउंड का समय सेव हुआ।')})};
+$('rs').onclick=function(){if(confirm('नया राउंड शुरू करें? पुराना हिसाब साफ हो जाएगा।')){var was=watchId!=null;api('reset').then(function(){if(was)return api('start')}).catch(function(){})}};
+function stopWatch(){if(watchId!=null)navigator.geolocation.clearWatch(watchId);watchId=null;if(lock){lock.release();lock=null}}
+function lockScreen(){if(navigator.wakeLock)navigator.wakeLock.request('screen').then(function(l){lock=l}).catch(function(){})}
+function turnOn(){
+  if(!navigator.geolocation){say('इस ब्राउज़र में लोकेशन नहीं है।');return}
+  say('लोकेशन की अनुमति माँगी जा रही है…');lastSend=0;
+  api('start').then(function(){lockScreen();
+    watchId=navigator.geolocation.watchPosition(function(p){
+      if(!watchId&&watchId!==0)return;say('लोकेशन जा रही है।');
+      var n=Date.now();if(n-lastSend<4000)return;lastSend=n;
+      api('location',{lat:p.coords.latitude,lng:p.coords.longitude,speed:p.coords.speed}).catch(function(){})},
+      function(e){say(e.code===1?'लोकेशन की अनुमति नहीं मिली। ब्राउज़र सेटिंग में "अनुमति दें" चुनिए। (फोन पर लिंक https वाला होना चाहिए)':'लोकेशन नहीं मिल रही, खुली जगह में दोबारा कोशिश कीजिए।');turnOff()},
+      {enableHighAccuracy:true,maximumAge:2000,timeout:20000});render(D)}).catch(function(){});
+}
+function turnOff(){stopWatch();api('stop').catch(function(){});say('लोकेशन बंद। customers को "रुकी हुई" दिखेगा।');if(D)render(D)}
+$('sw').onclick=function(){watchId!=null?turnOff():turnOn()};
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&watchId!=null)lockScreen()});
+</script></body></html>
