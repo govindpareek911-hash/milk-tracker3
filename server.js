@@ -2,6 +2,8 @@
 const http=require('http'),fs=require('fs'),path=require('path');
 const PORT=process.env.PORT||3000, PASS=process.env.ADMIN_PASS||'1234';
 const DB=path.join(__dirname,'data.json');
+// फाइलें 'public' फोल्डर में हों तो वहाँ से, वरना सीधे इसी फोल्डर से पेज दिखाओ
+const PUB=fs.existsSync(path.join(__dirname,'public'))?path.join(__dirname,'public'):__dirname;
 let data={config:{stops:[],home:null,roundMin:60},state:{running:false,done:0,startTs:0,lat:null,lng:null,ts:0,speed:0}};
 try{data=JSON.parse(fs.readFileSync(DB,'utf8'))}catch(e){}
 const save=()=>fs.writeFile(DB,JSON.stringify(data),()=>{});
@@ -43,7 +45,7 @@ http.createServer((req,res)=>{
       save();push();res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({ok:true}));
     });return;
   }
-  const f=path.join(__dirname,'public',url==='/'?'index.html':url==='/admin'?'admin.html':url);
-  if(!f.startsWith(path.join(__dirname,'public'))){res.writeHead(403);return res.end()}
+  const f=path.join(PUB,url==='/'?'index.html':url==='/admin'?'admin.html':url);
+  if(!f.startsWith(PUB)||['server.js','package.json','data.json','README.md'].includes(path.basename(f))){res.writeHead(404);return res.end('Not found')}
   fs.readFile(f,(e,buf)=>{if(e){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'content-type':types[path.extname(f)]||'application/octet-stream'});res.end(buf)});
 }).listen(PORT,()=>console.log('चालू: http://localhost:'+PORT+'  | admin: /admin | पासवर्ड: '+PASS));
